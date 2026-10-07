@@ -2,7 +2,7 @@
   <div class="page-container">
     <el-card>
       <el-alert type="error" :closable="false" style="margin-bottom:10px"
-        title="异常事项是“筛完无人管”的防线：请假、电话不通、导入错误、复诊差异、外配眼镜、补助争议、配镜不适、复查未到场，每一项都必须跟进到闭环。" />
+        title="异常事项是“筛完无人管”的防线：请假、电话不通、导入错误、复诊差异、外配眼镜、补助争议、配镜不适、复查未到场、家长拒绝复诊、连续拒绝风险升高，每一项都必须跟进到闭环——拒绝复诊绝不能简单标成“已处理”。" />
       <el-radio-group v-model="status" style="margin-bottom:10px" @change="load">
         <el-radio-button value="OPEN">待处理</el-radio-button>
         <el-radio-button value="RESOLVED">已闭环</el-radio-button>

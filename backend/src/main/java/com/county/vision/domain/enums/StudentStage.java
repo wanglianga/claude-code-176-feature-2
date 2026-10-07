@@ -15,6 +15,7 @@ public enum StudentStage {
     REVIEW_DUE("复查到期"),
     CLOSED_LOOP("本学年闭环"),
     DEFERRED("家长暂缓"),
+    REFUSAL_FOLLOW("拒诊跟进"),
     LOST_FOLLOW("失访跟进");
 
     private final String label;

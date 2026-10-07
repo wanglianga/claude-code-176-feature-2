@@ -46,7 +46,7 @@ public class StatsController {
         return ApiResponse.ok(stats.byRegion());
     }
 
-    @Operation(summary = "8 类异常事项分布（待处理/已闭环）")
+    @Operation(summary = "各类异常事项分布（待处理/已闭环，含家长拒诊/连续拒绝风险升高）")
     @GetMapping("/issues")
     public ApiResponse<List<Map<String, Object>>> issues() {
         return ApiResponse.ok(stats.issueDistribution());

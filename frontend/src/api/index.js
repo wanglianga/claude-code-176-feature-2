@@ -31,6 +31,15 @@ export const api = {
   intervention: (data) => http.post('/api/flow/intervention', data),
   resolveIssue: (data) => http.post('/api/flow/issue/resolve', data),
 
+  // 家长拒绝复诊后的跟进
+  refusalRecord: (data) => http.post('/api/refusal/record', data),
+  refusalReturnVisit: (data) => http.post('/api/refusal/return-visit', data),
+  refusalJointComm: (data) => http.post('/api/refusal/joint-comm', data),
+  refusalStudents: (schoolId) => http.get('/api/refusal/students', { params: { schoolId } }),
+  refusalDue: (date) => http.get('/api/refusal/due-return-visits', { params: { date } }),
+  refusalJointCandidates: () => http.get('/api/refusal/joint-candidates'),
+  refusalNodes: (id) => http.get(`/api/refusal/students/${id}/nodes`),
+
   issues: (status) => http.get('/api/ledger/issues', { params: { status } }),
   followups: (status) => http.get('/api/ledger/followups', { params: { status } }),
   subsidies: (status) => http.get('/api/ledger/subsidies', { params: { status } }),

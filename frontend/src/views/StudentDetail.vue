@@ -26,6 +26,7 @@
           <el-button type="primary" plain @click="openDialog('review')">学校复核</el-button>
           <el-button type="primary" plain @click="openDialog('notify')">家长告知</el-button>
           <el-button type="primary" plain @click="openDialog('choice')">家长确认选择</el-button>
+          <el-button type="danger" plain @click="openRefusal('refusal')">记录拒诊</el-button>
           <el-button type="success" plain @click="openDialog('visit')">复诊回写</el-button>
           <el-button type="success" plain @click="openDialog('glasses')">配镜登记</el-button>
           <el-button type="warning" plain @click="openDialog('subsidy')">补助申请</el-button>
@@ -156,6 +157,79 @@
               <el-empty v-if="!d.interventions?.length" description="暂无干预记录" :image-size="60" />
             </el-tab-pane>
 
+            <el-tab-pane :label="`拒诊跟进(${d.refusalNodes?.length || 0})`" name="refusal">
+              <div class="refusal-actions">
+                <el-button size="small" type="danger" plain @click="openRefusal('refusal')">记录拒绝复诊</el-button>
+                <el-button size="small" type="primary" plain @click="openRefusal('returnVisit')">发起约定回访</el-button>
+                <el-button size="small" type="warning" plain @click="openRefusal('joint')">班主任/社区医生共同沟通</el-button>
+              </div>
+
+              <!-- 历次筛查同档比较 -->
+              <div v-if="d.screens?.length" class="screen-compare">
+                <b>历次筛查结果（同一档案纵向比较）</b>
+                <el-table :data="d.screens.filter(s=>!s.absent)" size="small" border style="margin-top:6px">
+                  <el-table-column prop="screenDate" label="筛查日期" width="105" />
+                  <el-table-column label="裸眼视力(左/右)" width="130">
+                    <template #default="{ row }">{{ row.nakedVisionLeft }} / {{ row.nakedVisionRight }}</template>
+                  </el-table-column>
+                  <el-table-column label="球镜(左/右)" width="130">
+                    <template #default="{ row }">{{ row.sphereLeft }} / {{ row.sphereRight }}</template>
+                  </el-table-column>
+                  <el-table-column label="散光(左/右)" width="120">
+                    <template #default="{ row }">{{ row.cylinderLeft || '—' }} / {{ row.cylinderRight || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="判定">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.abnormal" type="danger" size="small">异常{{ row.abnormalReason ? '：'+row.abnormalReason : '' }}</el-tag>
+                      <el-tag v-else type="success" size="small">正常</el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+
+              <!-- 拒诊跟进节点链 -->
+              <el-timeline style="margin-top:12px">
+                <el-timeline-item v-for="n in [...(d.refusalNodes||[])].reverse()" :key="n.id"
+                                  :timestamp="(n.actualReturnDate || n.confirmTime || n.createdAt || '').toString().replace('T',' ').slice(0,16)"
+                                  :type="nodeDot(n.nodeType)">
+                  <el-tag size="small" :type="nodeTag(n.nodeType)" style="margin-right:6px">
+                    节点#{{ n.seq }} {{ n.nodeTypeLabel }}
+                  </el-tag>
+                  <el-tag v-if="n.status==='CLOSED'" size="small" type="success">已闭环</el-tag>
+
+                  <div v-if="n.nodeType==='REFUSAL'" style="font-size:13px;margin-top:4px">
+                    <div>拒绝原因：<b>{{ n.refusalReasonLabel }}</b>
+                      <span v-if="n.refusalReasonDetail">（{{ n.refusalReasonDetail }}）</span></div>
+                    <div class="muted">风险告知：{{ n.riskNotice }}</div>
+                    <div class="muted">确认时间：{{ fmt(n.confirmTime) }} ｜ 沟通人员：{{ n.communicator }}
+                      <span v-if="n.plannedReturnDate"> ｜ 约定回访：{{ n.plannedReturnDate }}</span></div>
+                  </div>
+
+                  <div v-else-if="n.nodeType==='RETURN_VISIT'" style="font-size:13px;margin-top:4px">
+                    <div>座位：{{ n.seatSituation || '—' }}</div>
+                    <div>作业/近距离用眼：{{ n.homeworkEyeUse || '—' }}</div>
+                    <div>户外活动：{{ n.outdoorActivity || '—' }}</div>
+                    <div>家长当前态度：<el-tag size="small" :type="attitudeType(n.parentAttitude)">{{ n.parentAttitudeLabel }}</el-tag></div>
+                    <div class="muted">与前次筛查比较：{{ n.compareSummary }}</div>
+                    <div class="muted">约定回访 {{ n.plannedReturnDate || '—' }} ｜ 实际 {{ n.actualReturnDate || '—' }}
+                      <span v-if="n.nextPlannedReturnDate"> ｜ 下次约定 {{ n.nextPlannedReturnDate }}</span></div>
+                  </div>
+
+                  <div v-else-if="n.nodeType==='RE_REMIND'" style="font-size:13px;margin-top:4px">
+                    <el-alert type="error" :closable="false" :title="n.riskSummary" style="padding:4px 10px" />
+                  </div>
+
+                  <div v-else-if="n.nodeType==='JOINT_COMM'" style="font-size:13px;margin-top:4px">
+                    <div>申请人：{{ n.jointApplicant }}</div>
+                    <div>参与方：{{ n.jointParticipants }} ｜ 时间：{{ fmt(n.jointCommTime) }}</div>
+                    <div>沟通结果：{{ n.jointResult }}</div>
+                    <div class="muted">学校干预措施：{{ n.schoolMeasures || '—' }}</div>
+                  </div>
+                </el-timeline-item>
+              </el-timeline>
+              <el-empty v-if="!d.refusalNodes?.length" description="暂无拒诊跟进记录" :image-size="60" />
+            </el-tab-pane>
+
             <el-tab-pane :label="`异常事项(${d.issues?.length || 0})`" name="issue">
               <el-table :data="d.issues" size="small" border>
                 <el-table-column prop="issueTypeLabel" label="类型" width="130" />
@@ -182,6 +256,7 @@
 
     <!-- 各类操作弹窗由 ActionDialogs 承载 -->
     <action-dialogs ref="dialogs" :student-id="d.id" @done="reload" />
+    <refusal-dialogs ref="refusalDialogs" :student-id="d.id" @done="reload" />
   </div>
 </template>
 
@@ -191,12 +266,14 @@ import { useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { api } from '../api'
 import ActionDialogs from '../components/ActionDialogs.vue'
+import RefusalDialogs from '../components/RefusalDialogs.vue'
 
 const route = useRoute()
 const d = ref({})
 const timelineRows = ref([])
 const tab = ref('screen')
 const dialogs = ref()
+const refusalDialogs = ref()
 
 const load = async () => {
   d.value = await api.studentDetail(route.params.id)
@@ -205,7 +282,19 @@ const load = async () => {
 const reload = async () => { await load(); ElMessage.success('操作已记录到健康管理时间线') }
 
 const openDialog = (name) => dialogs.value.open(name)
+const openRefusal = (name) => refusalDialogs.value.open(name)
 const fmt = (t) => t ? t.replace('T', ' ').substring(0, 16) : ''
+
+const nodeDot = (t) => ({
+  REFUSAL: 'danger', RETURN_VISIT: 'primary', RE_REMIND: 'warning', JOINT_COMM: 'warning'
+}[t] || '')
+const nodeTag = (t) => ({
+  REFUSAL: 'danger', RETURN_VISIT: 'primary', RE_REMIND: 'warning', JOINT_COMM: 'warning'
+}[t] || 'info')
+const attitudeType = (a) => ({
+  STILL_REFUSE: 'danger', UNREACHABLE: 'info', HESITATE: 'warning',
+  WILLING: 'success', ALREADY_VISITED: 'success'
+}[a] || 'info')
 const dotType = (t) => ({
   SCREEN: 'primary', VISIT: 'success', PRESCRIPTION: 'success', SUBSIDY: 'warning',
   ISSUE: 'danger', RESOLVE: 'success', INTERVENTION: 'info', STAGE_CHANGE: ''
@@ -242,4 +331,6 @@ onMounted(load)
 <style scoped>
 .actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .tl { max-height: 640px; overflow-y: auto; padding-right: 6px; }
+.refusal-actions { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.screen-compare b { font-size: 13px; }
 </style>

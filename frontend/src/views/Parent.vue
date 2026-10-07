@@ -5,6 +5,7 @@
         <el-radio-button value="AWAIT_PARENT">待家长确认</el-radio-button>
         <el-radio-button value="LOST_FOLLOW">电话不通/失访</el-radio-button>
         <el-radio-button value="DEFERRED">家长暂缓</el-radio-button>
+        <el-radio-button value="REFUSAL_FOLLOW">拒诊跟进</el-radio-button>
       </el-radio-group>
       <el-table :data="rows" stripe size="small">
         <el-table-column prop="name" label="姓名" width="90" />
@@ -22,16 +23,18 @@
             <el-tag v-for="(f,i) in row.flagLabels" :key="i" type="danger" size="small" style="margin:2px">{{ f }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260">
+        <el-table-column label="操作" width="340">
           <template #default="{ row }">
             <el-button size="small" @click="pick(row,'notify')">记录告知</el-button>
             <el-button size="small" type="primary" @click="pick(row,'choice')">家长确认选择</el-button>
+            <el-button size="small" type="danger" plain @click="pickRefusal(row)">记录拒诊</el-button>
             <el-button link size="small" @click="detail(row)">档案</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
     <action-dialogs ref="dialogs" :student-id="sid" @done="load" />
+    <refusal-dialogs ref="refusalDialogs" :student-id="sid" @done="load" />
   </div>
 </template>
 
@@ -40,14 +43,17 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import ActionDialogs from '../components/ActionDialogs.vue'
+import RefusalDialogs from '../components/RefusalDialogs.vue'
 
 const router = useRouter()
 const rows = ref([])
 const stage = ref('AWAIT_PARENT')
 const sid = ref(null)
 const dialogs = ref()
+const refusalDialogs = ref()
 const load = async () => { rows.value = await api.students({ stage: stage.value }) }
 const pick = (row, name) => { sid.value = row.id; dialogs.value.open(name) }
+const pickRefusal = (row) => { sid.value = row.id; refusalDialogs.value.open('refusal') }
 const detail = (row) => router.push(`/students/${row.id}`)
 onMounted(load)
 </script>

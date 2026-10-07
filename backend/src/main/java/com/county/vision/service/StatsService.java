@@ -30,6 +30,7 @@ public class StatsService {
     private final SubsidyApplicationRepository subsidyRepo;
     private final IssueTrackerRepository issueRepo;
     private final SchoolRepository schoolRepo;
+    private final RefusalFollowUpNodeRepository refusalNodeRepo;
     private final CacheService cache;
 
     @PersistenceContext
@@ -38,7 +39,8 @@ public class StatsService {
     public StatsService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                         VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                         SubsidyApplicationRepository subsidyRepo, IssueTrackerRepository issueRepo,
-                        SchoolRepository schoolRepo, CacheService cache) {
+                        SchoolRepository schoolRepo, RefusalFollowUpNodeRepository refusalNodeRepo,
+                        CacheService cache) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.visitRepo = visitRepo;
@@ -46,6 +48,7 @@ public class StatsService {
         this.subsidyRepo = subsidyRepo;
         this.issueRepo = issueRepo;
         this.schoolRepo = schoolRepo;
+        this.refusalNodeRepo = refusalNodeRepo;
         this.cache = cache;
     }
 
@@ -95,6 +98,23 @@ public class StatsService {
                 com.county.vision.domain.enums.SubsidyStatus.PAID));
         m.put("subsidyDispute", subsidyRepo.countByStatus(
                 com.county.vision.domain.enums.SubsidyStatus.DISPUTE));
+
+        // 家长拒绝复诊跟进指标：拒绝不等于“已处理”，要持续跟进到复诊
+        long refusalStudents = ((Number) em.createQuery(
+                        "select count(distinct n.student.id) from RefusalFollowUpNode n where n.status = 'ACTIVE'")
+                .getSingleResult()).longValue();
+        m.put("refusalActiveStudents", refusalStudents);
+        m.put("refusalTotal", refusalNodeRepo.countByNodeTypeAndStatus(
+                com.county.vision.domain.enums.NodeType.REFUSAL, "ACTIVE")
+                + refusalNodeRepo.countByNodeTypeAndStatus(
+                        com.county.vision.domain.enums.NodeType.REFUSAL, "CLOSED"));
+        m.put("refusalDueReturns", refusalNodeRepo.findDueReturnVisits(
+                java.time.LocalDate.now()).size());
+        m.put("refusalHighRisk", studentRepo.countByFlag("REFUSAL_RISK_HIGH"));
+        m.put("jointCommTotal", refusalNodeRepo.countByNodeTypeAndStatus(
+                        com.county.vision.domain.enums.NodeType.JOINT_COMM, "ACTIVE")
+                + refusalNodeRepo.countByNodeTypeAndStatus(
+                        com.county.vision.domain.enums.NodeType.JOINT_COMM, "CLOSED"));
 
         cache.put(cacheKey, m, Duration.ofSeconds(30));
         return m;
@@ -204,7 +224,7 @@ public class StatsService {
         return out;
     }
 
-    /** 异常事项分布（8 类异常场景的待处理/已闭环） */
+    /** 异常事项分布（各异常场景的待处理/已闭环，含家长拒诊与连续拒绝风险升高） */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> issueDistribution() {
         List<Map<String, Object>> out = new ArrayList<>();

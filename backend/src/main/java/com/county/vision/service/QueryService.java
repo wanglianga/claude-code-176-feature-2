@@ -32,13 +32,14 @@ public class QueryService {
     private final InterventionRepository interventionRepo;
     private final IssueTrackerRepository issueRepo;
     private final HealthEventRepository eventRepo;
+    private final RefusalFollowService refusalService;
 
     public QueryService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                         ParentConfirmationRepository confirmRepo, SchoolReviewRepository reviewRepo,
                         VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                         SubsidyApplicationRepository subsidyRepo, ReviewFollowUpRepository followupRepo,
                         InterventionRepository interventionRepo, IssueTrackerRepository issueRepo,
-                        HealthEventRepository eventRepo) {
+                        HealthEventRepository eventRepo, RefusalFollowService refusalService) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.confirmRepo = confirmRepo;
@@ -50,6 +51,7 @@ public class QueryService {
         this.interventionRepo = interventionRepo;
         this.issueRepo = issueRepo;
         this.eventRepo = eventRepo;
+        this.refusalService = refusalService;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +66,9 @@ public class QueryService {
         d.put("issues", issueRepo.findByStudentIdOrderByRaisedAtDesc(id).stream().map(this::issueMap).toList());
         d.put("latestScreen", screenRepo.findFirstByStudentIdOrderByScreenDateDescIdDesc(id)
                 .map(this::screenMap).orElse(null));
+        d.put("screens", screenRepo.findByStudentIdOrderByScreenDateAscIdAsc(id).stream()
+                .map(this::screenMap).toList());
+        d.put("refusalNodes", refusalService.nodesOfStudent(id));
         d.put("confirmation", confirmRepo.findFirstByStudentIdOrderByIdDesc(id)
                 .map(this::confirmMap).orElse(null));
         d.put("schoolReview", reviewRepo.findFirstByStudentIdOrderByIdDesc(id)

@@ -62,6 +62,38 @@ public class TimelineService {
                 });
     }
 
+    /**
+     * 打开异常事项；若已存在同类未闭环事项（如家长第二次拒绝复诊），不覆盖、不闭环原单，
+     * 而是把新情况追加到描述末尾并刷新提出时间，保留完整累计过程。
+     */
+    @Transactional
+    public IssueTracker raiseIssueAppend(Student student, ScreenFlag flag, String description) {
+        addFlag(student, flag);
+        return issueRepo.findFirstByStudentIdAndIssueTypeAndStatus(student.getId(), flag.name(), "OPEN")
+                .map(it -> {
+                    String base = it.getDescription() == null ? "" : it.getDescription();
+                    if (!base.contains(description)) {
+                        it.setDescription(base + " ｜ " + description);
+                        it.setRaisedAt(LocalDateTime.now());
+                        it.setRaisedBy(SecurityUtils.actorLabel());
+                        issueRepo.save(it);
+                    }
+                    return it;
+                })
+                .orElseGet(() -> raiseIssue(student, flag, description));
+    }
+
+    /** 若该学生存在指定类型的未闭环异常事项，则闭环它（找不到不报错）。返回是否实际闭环。 */
+    @Transactional
+    public boolean resolveByFlag(Student student, ScreenFlag flag, String note) {
+        return issueRepo.findFirstByStudentIdAndIssueTypeAndStatus(
+                        student.getId(), flag.name(), "OPEN")
+                .map(it -> {
+                    resolveIssue(it.getId(), note);
+                    return true;
+                }).orElse(false);
+    }
+
     @Transactional
     public void addFlag(Student student, ScreenFlag flag) {
         Set<String> flags = new LinkedHashSet<>(splitFlags(student.getFlags()));

@@ -32,13 +32,14 @@ public class FlowService {
     private final InterventionRepository interventionRepo;
     private final IssueTrackerRepository issueRepo;
     private final TimelineService timeline;
+    private final RefusalFollowService refusalFollowService;
 
     public FlowService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                        SchoolReviewRepository reviewRepo, ParentConfirmationRepository confirmRepo,
                        VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                        SubsidyApplicationRepository subsidyRepo, ReviewFollowUpRepository followupRepo,
                        InterventionRepository interventionRepo, IssueTrackerRepository issueRepo,
-                       TimelineService timeline) {
+                       TimelineService timeline, RefusalFollowService refusalFollowService) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.reviewRepo = reviewRepo;
@@ -50,6 +51,7 @@ public class FlowService {
         this.interventionRepo = interventionRepo;
         this.issueRepo = issueRepo;
         this.timeline = timeline;
+        this.refusalFollowService = refusalFollowService;
     }
 
     private Student requireStudent(Long id) {
@@ -106,6 +108,8 @@ public class FlowService {
             if (rec.getRetestNeeded()) {
                 timeline.raiseIssue(s, ScreenFlag.RETEST_NEEDED, "筛查机构建议复测");
             }
+            // 家长此前拒绝复诊且本次筛查继续下降：带出原拒诊记录与风险提示，重新生成复诊提醒
+            refusalFollowService.detectReRemind(s, saved);
         } else {
             timeline.changeStage(s, StudentStage.SCREENED);
         }
@@ -312,6 +316,9 @@ public class FlowService {
         } else {
             timeline.changeStage(s, StudentStage.VISITED);
         }
+
+        // 家长此前拒绝复诊、本次终于到院复诊：归档全部拒诊跟进节点并闭环相关异常事项
+        refusalFollowService.closeChain(s);
 
         // 自动建立下次复查计划
         if (req.getReviewCycleMonths() != null && req.getReviewCycleMonths() > 0) {

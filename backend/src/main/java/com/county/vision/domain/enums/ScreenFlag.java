@@ -12,7 +12,9 @@ public enum ScreenFlag {
     SUBSIDY_DISPUTE("补助资格争议"),
     GLASSES_DISCOMFORT("配镜后不适"),
     REVIEW_NO_SHOW("半年复查未到场"),
-    IMPORT_ERROR("批量导入信息错误");
+    IMPORT_ERROR("批量导入信息错误"),
+    PARENT_REFUSAL("家长拒绝复诊"),
+    REFUSAL_RISK_HIGH("连续拒绝且风险升高");
 
     private final String label;
 

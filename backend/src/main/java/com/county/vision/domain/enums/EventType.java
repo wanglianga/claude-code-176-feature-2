@@ -16,6 +16,10 @@ public enum EventType {
     SUBSIDY("配镜补助"),
     REVIEW("复查随访"),
     INTERVENTION("学校干预"),
+    REFUSAL("家长拒绝复诊"),
+    RETURN_VISIT("拒诊约定回访"),
+    RE_REMIND("下降后复诊再提醒"),
+    JOINT_COMM("多方共同沟通"),
     ISSUE("异常事项登记"),
     RESOLVE("异常事项处理"),
     STAGE_CHANGE("阶段流转");

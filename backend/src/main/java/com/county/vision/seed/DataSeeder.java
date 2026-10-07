@@ -6,6 +6,7 @@ import com.county.vision.domain.enums.ScreenFlag;
 import com.county.vision.domain.repository.*;
 import com.county.vision.dto.RecordDtos;
 import com.county.vision.service.FlowService;
+import com.county.vision.service.RefusalFollowService;
 import com.county.vision.service.TimelineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * 演示种子数据：
@@ -38,12 +40,14 @@ public class DataSeeder implements ApplicationRunner {
     private final PasswordEncoder encoder;
     private final FlowService flow;
     private final TimelineService timeline;
+    private final RefusalFollowService refusal;
 
     public DataSeeder(UserAccountRepository userRepo, RegionRepository regionRepo,
                       SchoolRepository schoolRepo, GradeClassRepository classRepo,
                       StudentRepository studentRepo, IssueTrackerRepository issueRepo,
                       PasswordEncoder encoder,
-                      FlowService flow, TimelineService timeline) {
+                      FlowService flow, TimelineService timeline,
+                      RefusalFollowService refusal) {
         this.userRepo = userRepo;
         this.regionRepo = regionRepo;
         this.schoolRepo = schoolRepo;
@@ -53,6 +57,7 @@ public class DataSeeder implements ApplicationRunner {
         this.encoder = encoder;
         this.flow = flow;
         this.timeline = timeline;
+        this.refusal = refusal;
     }
 
     @Override
@@ -296,7 +301,55 @@ public class DataSeeder implements ApplicationRunner {
                 true, new BigDecimal("540.00"), "1.56镜片", false, null));
         flow.addIntervention(intervention(han.getId(), "PARENT_REMIND", d(2026, 10, 6), "提醒家长督促每日2小时户外活动"));
 
-        log.info("种子数据初始化完成：3 个片区、4 所学校、10 个角色账号、16 名学生场景样例（含 3 个已闭环样例）");
+        // ---- 17. 家长认为“只是疲劳用眼”拒绝复诊 → 回访 → 筛查继续下降重新提醒 → 再拒（不覆盖）→ 班主任+社区医生共同沟通（许强，三年级2班）----
+        GradeClass g32 = grade(s1, "三年级", "2班");
+        Student xu = student(s1, g32, "2024030217", "许强", "男",
+                LocalDate.of(2014, 4, 16), "许妈妈", "13800010777", "2025年裸眼视力4.9", year);
+        flow.submitScreen(screen(xu.getId(), "4.8", "4.8", "-0.50", "-0.50", null, null,
+                false, "每日作业约2小时，户外活动不足1小时，睡前看手机", false, null, d(2026, 9, 15)));
+        flow.schoolReview(review(xu.getId(), "CONFIRM", "视力临界异常，建议尽快复诊明确是否假性近视"));
+        flow.notifyParent(notify(xu.getId(), "电话", false, null));
+        // 家长第一次拒绝（记录原因/风险告知/确认时间/沟通人员，不是“已处理”）
+        refusal.recordRefusal(refusalReq(xu.getId(), "EYE_FATIGUE",
+                "孩子就是最近作业多、用眼疲劳，休息几天自然会好，不用去医院", null,
+                "健康老师 李校医", d(2026, 10, 20),
+                LocalDateTime.of(2026, 9, 25, 18, 30), null));
+        // 健康老师在约定时间回访：座位/作业用眼/户外活动/家长当前态度，与前一次筛查同档比较
+        refusal.returnVisit(returnVisitReq(xu.getId(), d(2026, 10, 20),
+                "第5排靠窗边，座位轮换较少",
+                "每日作业约2.5小时，睡前习惯看手机约30分钟",
+                "每日户外不足1小时，课间多在教室",
+                "STILL_REFUSE", d(2026, 11, 20), "健康老师 李校医",
+                "家长仍坚持是疲劳用眼，但愿意继续观察"));
+        // 一个多月后复查式筛查：视力继续下降 → 系统自动带出第一次拒诊记录与风险提示，重新生成复诊提醒
+        flow.submitScreen(screen(xu.getId(), "4.5", "4.6", "-1.50", "-1.25", null, null,
+                false, "作业时间仍长，户外活动没有改善", false, null, d(2026, 11, 10)));
+        // 家长再次拒绝：生成新的拒诊节点，绝不覆盖第一次；连续拒绝且下降 → 风险持续升高
+        refusal.recordRefusal(refusalReq(xu.getId(), "EYE_FATIGUE",
+                "还是觉得只是疲劳，再观察观察，暂时不想去医院", null,
+                "三班班主任 陈老师", d(2026, 12, 5),
+                LocalDateTime.of(2026, 11, 15, 19, 0),
+                "已向家长出示两次筛查下降对比，家长仍拒绝"));
+        // 学校申请班主任 + 社区医生共同沟通，登记沟通结果与学校干预措施（可追溯到该学生）
+        refusal.jointComm(jointCommReq(xu.getId(), "学校（健康老师 李校医）",
+                "三班班主任 陈老师、阳光社区卫生服务中心 社区医生吴医生",
+                LocalDateTime.of(2026, 11, 20, 16, 0),
+                "结合两次筛查下降数据与社区医生的近视进展科普，家长态度由拒绝转为犹豫，最终同意12月初先带孩子到县人民医院眼科做散瞳检查",
+                "座位由第5排调至第3排正中并纳入每月轮换；每天安排不少于2小时户外活动并由班主任打卡；每周向家长推送一次用眼卫生与复诊提醒；校医两周后再回访",
+                "多方共同沟通，全程留痕"));
+
+        // ---- 18. 家长认为假性近视拒绝复诊、已到约定回访时间仍未回访（邓琳，四年级1班，用于“到期待回访”）----
+        Student deng = student(s1, grade(s1, "四年级", "1班"), "2024040118", "邓琳", "女",
+                LocalDate.of(2013, 9, 5), "邓爸爸", "13800010888", null, year);
+        flow.submitScreen(screen(deng.getId(), "4.7", "4.7", "-0.75", "-0.75", null, null,
+                false, "看书写字距离偏近", false, null, d(2026, 9, 16)));
+        flow.schoolReview(review(deng.getId(), "CONFIRM", "确认异常，建议复诊"));
+        flow.notifyParent(notify(deng.getId(), "电话", false, null));
+        refusal.recordRefusal(refusalReq(deng.getId(), "PSEUDO_MYOPIA",
+                "孩子可能是假性近视，先做眼保健操、注意休息就行", null,
+                "健康老师 李校医", d(2026, 9, 28), null));
+
+        log.info("种子数据初始化完成：3 个片区、4 所学校、10 个角色账号、18 名学生场景样例（含 3 个已闭环样例、1 条拒诊全链路、1 条到期待回访）");
     }
 
     /** 闭环某学生当前未处理的指定类型异常事项 */
@@ -443,6 +496,58 @@ public class DataSeeder implements ApplicationRunner {
         i.setContent(content);
         i.setExecuted(true);
         return i;
+    }
+
+    private RecordDtos.RefusalRequest refusalReq(Long sid, String reason, String detail, String riskNotice,
+                                                 String communicator, LocalDate plannedReturn, String remark) {
+        RecordDtos.RefusalRequest r = new RecordDtos.RefusalRequest();
+        r.setStudentId(sid);
+        r.setRefusalReason(reason);
+        r.setRefusalReasonDetail(detail);
+        r.setRiskNotice(riskNotice);
+        r.setCommunicator(communicator);
+        r.setPlannedReturnDate(plannedReturn);
+        r.setRemark(remark);
+        return r;
+    }
+
+    private RecordDtos.RefusalRequest refusalReq(Long sid, String reason, String detail, String riskNotice,
+                                                 String communicator, LocalDate plannedReturn,
+                                                 LocalDateTime confirmTime, String remark) {
+        RecordDtos.RefusalRequest r = refusalReq(sid, reason, detail, riskNotice, communicator, plannedReturn, remark);
+        r.setConfirmTime(confirmTime);
+        return r;
+    }
+
+    private RecordDtos.RefusalReturnVisitRequest returnVisitReq(Long sid, LocalDate actualDate, String seat,
+                                                                String homework, String outdoor, String attitude,
+                                                                LocalDate nextPlanned, String communicator,
+                                                                String remark) {
+        RecordDtos.RefusalReturnVisitRequest r = new RecordDtos.RefusalReturnVisitRequest();
+        r.setStudentId(sid);
+        r.setActualReturnDate(actualDate);
+        r.setSeatSituation(seat);
+        r.setHomeworkEyeUse(homework);
+        r.setOutdoorActivity(outdoor);
+        r.setParentAttitude(attitude);
+        r.setNextPlannedReturnDate(nextPlanned);
+        r.setCommunicator(communicator);
+        r.setRemark(remark);
+        return r;
+    }
+
+    private RecordDtos.JointCommRequest jointCommReq(Long sid, String applicant, String participants,
+                                                     LocalDateTime commTime, String result,
+                                                     String measures, String remark) {
+        RecordDtos.JointCommRequest r = new RecordDtos.JointCommRequest();
+        r.setStudentId(sid);
+        r.setJointApplicant(applicant);
+        r.setParticipants(participants);
+        r.setJointCommTime(commTime);
+        r.setJointResult(result);
+        r.setSchoolMeasures(measures);
+        r.setRemark(remark);
+        return r;
     }
 
     /* ---------- 实体构造 ---------- */
