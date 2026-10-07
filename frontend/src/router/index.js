@@ -19,6 +19,8 @@ const routes = [
         meta: { icon: 'CircleCheck', roles: ['ADMIN', 'SCHOOL_DOCTOR', 'TEACHER', 'GOV_EDU', 'GOV_HEALTH'] } },
       { path: 'parent', name: '家长告知确认', component: () => import('../views/Parent.vue'),
         meta: { icon: 'ChatDotRound', roles: ['ADMIN', 'SCHOOL_DOCTOR', 'TEACHER'] } },
+      { path: 'refusal', name: '拒诊跟进与回访', component: () => import('../views/Refusal.vue'),
+        meta: { icon: 'PhoneFilled', roles: ['ADMIN', 'SCHOOL_DOCTOR', 'TEACHER', 'GOV_EDU', 'GOV_HEALTH'] } },
       { path: 'visit', name: '复诊处方', component: () => import('../views/Visit.vue'),
         meta: { icon: 'FirstAidKit', roles: ['ADMIN', 'HOSPITAL', 'CLINIC', 'GOV_HEALTH'] } },
       { path: 'subsidy', name: '配镜与补助', component: () => import('../views/Subsidy.vue'),

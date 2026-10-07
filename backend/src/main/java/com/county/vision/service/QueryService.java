@@ -32,13 +32,17 @@ public class QueryService {
     private final InterventionRepository interventionRepo;
     private final IssueTrackerRepository issueRepo;
     private final HealthEventRepository eventRepo;
+    private final RefusalFollowUpRepository refusalRepo;
+    private final JointCommunicationRepository jointRepo;
 
     public QueryService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                         ParentConfirmationRepository confirmRepo, SchoolReviewRepository reviewRepo,
                         VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                         SubsidyApplicationRepository subsidyRepo, ReviewFollowUpRepository followupRepo,
                         InterventionRepository interventionRepo, IssueTrackerRepository issueRepo,
-                        HealthEventRepository eventRepo) {
+                        HealthEventRepository eventRepo,
+                        RefusalFollowUpRepository refusalRepo,
+                        JointCommunicationRepository jointRepo) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.confirmRepo = confirmRepo;
@@ -50,6 +54,8 @@ public class QueryService {
         this.interventionRepo = interventionRepo;
         this.issueRepo = issueRepo;
         this.eventRepo = eventRepo;
+        this.refusalRepo = refusalRepo;
+        this.jointRepo = jointRepo;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +70,9 @@ public class QueryService {
         d.put("issues", issueRepo.findByStudentIdOrderByRaisedAtDesc(id).stream().map(this::issueMap).toList());
         d.put("latestScreen", screenRepo.findFirstByStudentIdOrderByScreenDateDescIdDesc(id)
                 .map(this::screenMap).orElse(null));
+        // 历次筛查全部列出，与拒诊/回访节点放在同一档案比较
+        d.put("screens", screenRepo.findByStudentIdOrderByScreenDateDescIdDesc(id).stream()
+                .map(this::screenMap).toList());
         d.put("confirmation", confirmRepo.findFirstByStudentIdOrderByIdDesc(id)
                 .map(this::confirmMap).orElse(null));
         d.put("schoolReview", reviewRepo.findFirstByStudentIdOrderByIdDesc(id)
@@ -75,6 +84,11 @@ public class QueryService {
         d.put("followups", followupRepo.findByStudentIdOrderByPlannedDateAscIdAsc(id).stream().map(this::followMap).toList());
         d.put("interventions", interventionRepo.findByStudentIdOrderByExecDateDescIdDesc(id)
                 .stream().map(this::interventionMap).toList());
+        // 家长拒绝复诊后的全部跟进节点（历次拒绝/回访/重新提醒/共同沟通，不覆盖）
+        d.put("refusals", refusalRepo.findByStudentIdOrderBySeqNoAscIdAsc(id).stream()
+                .map(this::refusalMap).toList());
+        d.put("jointComms", jointRepo.findByStudentIdOrderByIdAsc(id).stream()
+                .map(this::jointMap).toList());
         d.put("events", eventRepo.findByStudentIdOrderByEventTimeAscIdAsc(id).stream().map(this::eventMap).toList());
         return d;
     }
@@ -111,6 +125,60 @@ public class QueryService {
             }
         }
         return list.stream().map(this::subsidyMap).toList();
+    }
+
+    /** 拒诊跟进台账：可按学生阶段/是否到约定回访时间过滤（学校角色仅见本校） */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> refusalLedger(boolean dueOnly) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        LoginUser me = SecurityUtils.current();
+        // 按学生取最新一个跟进节点：历史节点（已回访/已同意/已共同沟通）不再列为待办
+        java.util.Map<Long, com.county.vision.domain.entity.RefusalFollowUp> latestByStudent =
+                new java.util.LinkedHashMap<>();
+        refusalRepo.findAll().stream()
+                .filter(n -> n.getStudent() != null)
+                .filter(n -> me.getSchoolId() == null
+                        || me.getSchoolId().equals(n.getStudent().getSchool().getId()))
+                .sorted(java.util.Comparator.comparing(
+                        com.county.vision.domain.entity.RefusalFollowUp::getSeqNo,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .forEach(n -> latestByStudent.put(n.getStudent().getId(), n));
+
+        return latestByStudent.values().stream()
+                .filter(n -> {
+                    if (!dueOnly) return true;
+                    com.county.vision.domain.enums.RefusalOutcome o = n.getOutcome();
+                    boolean terminal = o == com.county.vision.domain.enums.RefusalOutcome.AGREED_VISIT
+                            || o == com.county.vision.domain.enums.RefusalOutcome.JOINT_DONE;
+                    return !terminal && n.getPlannedCallbackDate() != null
+                            && !n.getPlannedCallbackDate().isAfter(today);
+                })
+                .sorted(java.util.Comparator.comparing(
+                        (com.county.vision.domain.entity.RefusalFollowUp n) ->
+                                n.getPlannedCallbackDate() == null ? java.time.LocalDate.MAX
+                                        : n.getPlannedCallbackDate()))
+                .map(this::refusalMap).toList();
+    }
+
+    /** 多方共同沟通台账（学校角色仅见本校） */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> jointCommLedger(String status) {
+        LoginUser me = SecurityUtils.current();
+        List<com.county.vision.domain.entity.JointCommunication> list;
+        if (status == null || status.isBlank() || "ALL".equals(status)) {
+            list = jointRepo.findAllByOrderByApplyTimeDesc();
+        } else {
+            try {
+                list = jointRepo.findByStatusOrderByApplyTimeDesc(
+                        com.county.vision.domain.enums.JointCommStatus.valueOf(status));
+            } catch (IllegalArgumentException e) {
+                list = jointRepo.findAllByOrderByApplyTimeDesc();
+            }
+        }
+        return list.stream()
+                .filter(j -> me.getSchoolId() == null
+                        || me.getSchoolId().equals(j.getStudent().getSchool().getId()))
+                .map(this::jointMap).toList();
     }
 
     /* ----------------------- 投影 ----------------------- */
@@ -178,6 +246,8 @@ public class QueryService {
         m.put("choiceLabel", c.getChoice() == null ? null : c.getChoice().getLabel());
         m.put("targetOrg", c.getTargetOrg());
         m.put("deferReason", c.getDeferReason());
+        m.put("riskNotice", c.getRiskNotice());
+        m.put("communicator", c.getCommunicator());
         m.put("remark", c.getRemark());
         return m;
     }
@@ -273,6 +343,72 @@ public class QueryService {
         m.put("executor", iv.getExecutor());
         m.put("content", iv.getContent());
         m.put("executed", iv.getExecuted());
+        return m;
+    }
+
+    private Map<String, Object> refusalMap(com.county.vision.domain.entity.RefusalFollowUp n) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", n.getId());
+        m.put("studentId", n.getStudent().getId());
+        m.put("studentName", n.getStudent().getName());
+        m.put("schoolName", n.getStudent().getSchool().getName());
+        m.put("gradeClass", n.getStudent().getGradeClass().getGrade()
+                + n.getStudent().getGradeClass().getClassName());
+        m.put("seqNo", n.getSeqNo());
+        m.put("triggerSource", n.getTriggerSource() == null ? null : n.getTriggerSource().name());
+        m.put("triggerLabel", n.getTriggerSource() == null ? null : n.getTriggerSource().getLabel());
+        m.put("linkedScreenId", n.getLinkedScreen() == null ? null : n.getLinkedScreen().getId());
+        m.put("outcome", n.getOutcome() == null ? null : n.getOutcome().name());
+        m.put("outcomeLabel", n.getOutcome() == null ? null : n.getOutcome().getLabel());
+        m.put("reasonType", n.getReasonType() == null ? null : n.getReasonType().name());
+        m.put("reasonTypeLabel", n.getReasonType() == null ? null : n.getReasonType().getLabel());
+        m.put("reasonDetail", n.getReasonDetail());
+        m.put("riskNotice", n.getRiskNotice());
+        m.put("riskAcknowledged", n.getRiskAcknowledged());
+        m.put("confirmTime", n.getConfirmTime());
+        m.put("communicator", n.getCommunicator());
+        m.put("contactChannel", n.getContactChannel());
+        m.put("plannedCallbackDate", n.getPlannedCallbackDate());
+        m.put("callbackTime", n.getCallbackTime());
+        m.put("callbackStaff", n.getCallbackStaff());
+        m.put("seatSituation", n.getSeatSituation());
+        m.put("homeworkEyeUse", n.getHomeworkEyeUse());
+        m.put("outdoorActivity", n.getOutdoorActivity());
+        m.put("parentAttitude", n.getParentAttitude() == null ? null : n.getParentAttitude().name());
+        m.put("parentAttitudeLabel", n.getParentAttitude() == null ? null : n.getParentAttitude().getLabel());
+        m.put("prevVisionLeft", n.getPrevVisionLeft());
+        m.put("prevVisionRight", n.getPrevVisionRight());
+        m.put("revisitReminded", n.getRevisitReminded());
+        m.put("reminderContent", n.getReminderContent());
+        m.put("remark", n.getRemark());
+        m.put("createdAt", n.getCreatedAt());
+        return m;
+    }
+
+    private Map<String, Object> jointMap(com.county.vision.domain.entity.JointCommunication j) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", j.getId());
+        m.put("studentId", j.getStudent().getId());
+        m.put("studentName", j.getStudent().getName());
+        m.put("schoolName", j.getStudent().getSchool().getName());
+        m.put("gradeClass", j.getStudent().getGradeClass().getGrade()
+                + j.getStudent().getGradeClass().getClassName());
+        m.put("refusalId", j.getRefusalFollowUp() == null ? null : j.getRefusalFollowUp().getId());
+        m.put("commType", j.getCommType() == null ? null : j.getCommType().name());
+        m.put("commTypeLabel", j.getCommType() == null ? null : j.getCommType().getLabel());
+        m.put("status", j.getStatus() == null ? null : j.getStatus().name());
+        m.put("statusLabel", j.getStatus() == null ? null : j.getStatus().getLabel());
+        m.put("applicant", j.getApplicant());
+        m.put("applyTime", j.getApplyTime());
+        m.put("applyReason", j.getApplyReason());
+        m.put("headTeacherName", j.getHeadTeacherName());
+        m.put("communityDoctorName", j.getCommunityDoctorName());
+        m.put("plannedTime", j.getPlannedTime());
+        m.put("actualTime", j.getActualTime());
+        m.put("channel", j.getChannel());
+        m.put("commResult", j.getCommResult());
+        m.put("schoolMeasure", j.getSchoolMeasure());
+        m.put("recorder", j.getRecorder());
         return m;
     }
 

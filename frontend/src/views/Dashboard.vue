@@ -24,6 +24,16 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" style="margin-top:14px">
+      <template #header><span class="card-header-title">家长拒绝复诊持续跟进（拒绝不标“已处理”，逐节点追踪）</span></template>
+      <el-row :gutter="12">
+        <el-col :span="4" v-for="k in refusalKpis" :key="k.label">
+          <div class="num" :style="{ color: k.color || '#e6a23c' }">{{ k.value }}</div>
+          <div class="label">{{ k.label }}</div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <el-row :gutter="12" style="margin-top:14px">
       <el-col :span="14">
         <el-card>
@@ -48,7 +58,7 @@
       </el-col>
       <el-col :span="12">
         <el-card>
-          <template #header><span class="card-header-title">八类异常事项闭环情况</span></template>
+          <template #header><span class="card-header-title">异常事项闭环情况（含家长拒诊待跟进、连续拒诊共同沟通）</span></template>
           <div ref="issueChart" style="height:300px"></div>
         </el-card>
       </el-col>
@@ -111,6 +121,16 @@ const kpis = computed(() => [
 ])
 
 const rateColor = (v) => v >= 80 ? '#67c23a' : v >= 50 ? '#e6a23c' : '#f56c6c'
+
+const refusalKpis = computed(() => [
+  { label: '拒诊跟进中', value: ov.value.refusalFollowCount ?? '-' },
+  { label: '拒诊学生数', value: ov.value.refusalStudentTotal ?? '-' },
+  { label: '再次拒绝人次', value: ov.value.refusalReRefusedCount ?? '-', color: '#f56c6c' },
+  { label: '动员同意复诊', value: (ov.value.refusalConvertedCount ?? '-')
+    + '（' + (ov.value.refusalConvertRate ?? 0) + '%）', color: '#67c23a' },
+  { label: '共同沟通待办', value: ov.value.jointCommOpen ?? '-', color: '#e6a23c' },
+  { label: '共同沟通已完成', value: ov.value.jointCommDone ?? '-', color: '#67c23a' }
+])
 
 const load = async () => {
   const params = { schoolId: auth.isSchool ? auth.schoolId : schoolId.value, regionId: regionId.value }

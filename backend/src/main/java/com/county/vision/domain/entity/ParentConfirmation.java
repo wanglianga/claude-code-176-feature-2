@@ -38,5 +38,12 @@ public class ParentConfirmation extends BaseEntity {
     @Column(length = 500)
     private String deferReason;
 
+    /** 向家长告知的风险内容（近视进展/并发症/复诊必要性） */
+    @Column(length = 1000)
+    private String riskNotice;
+
+    /** 与家长沟通的工作人员（健康老师/班主任） */
+    private String communicator;
+
     private String remark;
 }

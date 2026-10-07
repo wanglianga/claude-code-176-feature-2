@@ -32,6 +32,11 @@
           <el-button type="warning" plain @click="openDialog('followup')">复查登记</el-button>
           <el-button type="info" plain @click="openDialog('intervention')">学校干预</el-button>
         </el-button-group>
+        <el-button-group style="margin-left:8px">
+          <el-button type="danger" plain @click="openDialog('refusal')">登记拒绝复诊</el-button>
+          <el-button type="primary" plain @click="openDialog('callback')">健康回访</el-button>
+          <el-button type="warning" plain @click="openDialog('joint')">申请共同沟通</el-button>
+        </el-button-group>
       </div>
     </el-card>
 
@@ -156,6 +161,74 @@
               <el-empty v-if="!d.interventions?.length" description="暂无干预记录" :image-size="60" />
             </el-tab-pane>
 
+            <el-tab-pane :label="`拒诊跟进(${d.refusals?.length || 0})`" name="refusal">
+              <!-- 历次筛查同档比较 -->
+              <div class="section-title">历次筛查结果（与回访同档比较）</div>
+              <el-table :data="d.screens || []" size="small" border style="margin-bottom:14px">
+                <el-table-column prop="screenDate" label="筛查日期" width="110" />
+                <el-table-column label="裸眼视力(左/右)" width="140">
+                  <template #default="{ row }">{{ row.nakedVisionLeft }} / {{ row.nakedVisionRight }}</template>
+                </el-table-column>
+                <el-table-column label="球镜(左/右)" width="130">
+                  <template #default="{ row }">{{ row.sphereLeft }} / {{ row.sphereRight }}</template>
+                </el-table-column>
+                <el-table-column label="判定" min-width="150">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.absent" type="info">请假未检</el-tag>
+                    <el-tag v-else-if="row.abnormal" type="danger">异常 {{ row.abnormalReason }}</el-tag>
+                    <el-tag v-else type="success">正常</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <div class="section-title">拒绝复诊跟进节点（每次拒绝/回访均为新节点，不覆盖历史）</div>
+              <el-empty v-if="!d.refusals?.length" description="暂无拒诊跟进记录" :image-size="60" />
+              <el-timeline v-else>
+                <el-timeline-item v-for="n in d.refusals" :key="n.id"
+                                  :timestamp="fmtFull(n.confirmTime || n.callbackTime || n.createdAt)"
+                                  :type="n.outcome==='AGREED_VISIT'?'success':n.outcome==='REFUSED'?'danger':'warning'">
+                  <el-tag size="small" style="margin-right:6px">#{{ n.seqNo }} {{ n.triggerLabel }}</el-tag>
+                  <el-tag size="small" :type="n.outcome==='AGREED_VISIT'?'success':n.outcome==='REFUSED'?'danger':'warning'">
+                    {{ n.outcomeLabel }}
+                  </el-tag>
+                  <div style="margin-top:6px;font-size:13px">
+                    <div v-if="n.reasonTypeLabel"><b>拒绝归因：</b>{{ n.reasonTypeLabel }}</div>
+                    <div v-if="n.reasonDetail"><b>家长原话：</b>{{ n.reasonDetail }}</div>
+                    <div v-if="n.riskNotice" class="risk-box"><b>风险告知：</b>{{ n.riskNotice }}
+                      <el-tag v-if="n.riskAcknowledged" size="small" type="danger" style="margin-left:6px">家长已知情确认</el-tag>
+                    </div>
+                    <div v-if="n.communicator"><b>确认时间：</b>{{ fmtFull(n.confirmTime) }} ｜ <b>沟通人员：</b>{{ n.communicator }}（{{ n.contactChannel }}）</div>
+                    <template v-if="n.callbackTime">
+                      <div class="section-title" style="margin-top:6px">健康回访（{{ fmtFull(n.callbackTime) }} · {{ n.callbackStaff }}）</div>
+                      <div><b>座位：</b>{{ n.seatSituation || '—' }}</div>
+                      <div><b>作业用眼：</b>{{ n.homeworkEyeUse || '—' }}</div>
+                      <div><b>户外活动：</b>{{ n.outdoorActivity || '—' }}</div>
+                      <div><b>家长态度：</b>
+                        <el-tag size="small" :type="n.parentAttitude==='AGREED'?'success':n.parentAttitude==='STILL_REFUSE'?'danger':'info'">
+                          {{ n.parentAttitudeLabel || '—' }}
+                        </el-tag>
+                      </div>
+                      <div class="muted">比对上次筛查裸眼视力：左{{ n.prevVisionLeft || '—' }}/右{{ n.prevVisionRight || '—' }}</div>
+                    </template>
+                    <el-alert v-if="n.revisitReminded" type="warning" :closable="false" style="margin-top:6px"
+                      :title="'后续筛查下降，已重新生成复诊提醒：' + n.reminderContent" />
+                    <div v-if="n.plannedCallbackDate" class="muted">约定下次回访：{{ n.plannedCallbackDate }}</div>
+                  </div>
+                </el-timeline-item>
+              </el-timeline>
+
+              <div v-if="d.jointComms?.length" class="section-title">班主任/社区医生共同沟通</div>
+              <el-card v-for="j in d.jointComms" :key="j.id" shadow="never" style="margin-bottom:8px">
+                <el-tag size="small" type="warning">{{ j.commTypeLabel }}</el-tag>
+                <el-tag size="small" :type="j.status==='DONE'?'success':'warning'" style="margin-left:6px">{{ j.statusLabel }}</el-tag>
+                <div style="font-size:13px;margin-top:4px">
+                  班主任：{{ j.headTeacherName || '—' }} ｜ 社区医生：{{ j.communityDoctorName || '—' }} ｜ 申请人：{{ j.applicant }}
+                </div>
+                <div v-if="j.commResult"><b>沟通结果：</b>{{ j.commResult }}</div>
+                <div v-if="j.schoolMeasure"><b>学校干预措施：</b>{{ j.schoolMeasure }}</div>
+              </el-card>
+            </el-tab-pane>
+
             <el-tab-pane :label="`异常事项(${d.issues?.length || 0})`" name="issue">
               <el-table :data="d.issues" size="small" border>
                 <el-table-column prop="issueTypeLabel" label="类型" width="130" />
@@ -206,14 +279,17 @@ const reload = async () => { await load(); ElMessage.success('操作已记录到
 
 const openDialog = (name) => dialogs.value.open(name)
 const fmt = (t) => t ? t.replace('T', ' ').substring(0, 16) : ''
+const fmtFull = (t) => fmt(t)
 const dotType = (t) => ({
   SCREEN: 'primary', VISIT: 'success', PRESCRIPTION: 'success', SUBSIDY: 'warning',
-  ISSUE: 'danger', RESOLVE: 'success', INTERVENTION: 'info', STAGE_CHANGE: ''
+  ISSUE: 'danger', RESOLVE: 'success', INTERVENTION: 'info', STAGE_CHANGE: '',
+  REFUSAL: 'danger', HEALTH_CALLBACK: 'warning', REVISIT_REMIND: 'warning', JOINT_COMM: 'warning'
 }[t] || '')
 const tagType = (t) => ({
   SCREEN: 'primary', VISIT: 'success', PRESCRIPTION: 'success', SUBSIDY: 'warning',
   ISSUE: 'danger', RESOLVE: 'success', INTERVENTION: 'info', NOTIFY: '', PARENT_CONFIRM: '',
-  SCHOOL_REVIEW: '', RETEST: 'warning', GLASSES: '', REVIEW: '', IMPORT: '', STAGE_CHANGE: 'info'
+  SCHOOL_REVIEW: '', RETEST: 'warning', GLASSES: '', REVIEW: '', IMPORT: '', STAGE_CHANGE: 'info',
+  REFUSAL: 'danger', HEALTH_CALLBACK: 'warning', REVISIT_REMIND: 'warning', JOINT_COMM: 'warning'
 }[t] || 'info')
 
 const resolveIssue = (row) => {
@@ -242,4 +318,9 @@ onMounted(load)
 <style scoped>
 .actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .tl { max-height: 640px; overflow-y: auto; padding-right: 6px; }
+.section-title { font-weight: 600; color: #1f3a4d; margin: 10px 0 6px; font-size: 13px; }
+.risk-box {
+  background: #fdf6ec; border-left: 3px solid #e6a23c;
+  padding: 4px 8px; margin: 4px 0; border-radius: 2px;
+}
 </style>

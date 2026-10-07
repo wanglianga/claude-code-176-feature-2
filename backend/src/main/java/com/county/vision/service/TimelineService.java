@@ -93,6 +93,17 @@ public class TimelineService {
     public IssueTracker resolveIssue(Long issueId, String note) {
         IssueTracker issue = issueRepo.findById(issueId)
                 .orElseThrow(() -> new IllegalArgumentException("异常事项不存在"));
+        return doResolve(issue, note);
+    }
+
+    /** 闭环某学生当前未处理的指定类型异常事项（无则不处理） */
+    @Transactional
+    public void resolveIssueByFlag(Student student, ScreenFlag flag, String note) {
+        issueRepo.findFirstByStudentIdAndIssueTypeAndStatus(student.getId(), flag.name(), "OPEN")
+                .ifPresent(issue -> doResolve(issue, note));
+    }
+
+    private IssueTracker doResolve(IssueTracker issue, String note) {
         issue.setStatus("RESOLVED");
         issue.setResolvedBy(SecurityUtils.actorLabel());
         issue.setResolvedAt(LocalDateTime.now());

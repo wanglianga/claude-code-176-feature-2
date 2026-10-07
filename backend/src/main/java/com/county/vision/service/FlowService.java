@@ -32,13 +32,14 @@ public class FlowService {
     private final InterventionRepository interventionRepo;
     private final IssueTrackerRepository issueRepo;
     private final TimelineService timeline;
+    private final RefusalService refusalService;
 
     public FlowService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                        SchoolReviewRepository reviewRepo, ParentConfirmationRepository confirmRepo,
                        VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                        SubsidyApplicationRepository subsidyRepo, ReviewFollowUpRepository followupRepo,
                        InterventionRepository interventionRepo, IssueTrackerRepository issueRepo,
-                       TimelineService timeline) {
+                       TimelineService timeline, RefusalService refusalService) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.reviewRepo = reviewRepo;
@@ -50,6 +51,7 @@ public class FlowService {
         this.interventionRepo = interventionRepo;
         this.issueRepo = issueRepo;
         this.timeline = timeline;
+        this.refusalService = refusalService;
     }
 
     private Student requireStudent(Long id) {
@@ -102,7 +104,11 @@ public class FlowService {
                         abnormal ? "，判定异常" : ""));
 
         if (abnormal) {
-            timeline.changeStage(s, StudentStage.ABNORMAL_REVIEW);
+            // 若该生此前拒绝过复诊且本次筛查视力继续下降，带出原拒诊记录与风险提示重新提醒
+            boolean revisitReminded = refusalService.remindIfDroppedAfterRefusal(s, saved);
+            if (!revisitReminded) {
+                timeline.changeStage(s, StudentStage.ABNORMAL_REVIEW);
+            }
             if (rec.getRetestNeeded()) {
                 timeline.raiseIssue(s, ScreenFlag.RETEST_NEEDED, "筛查机构建议复测");
             }
@@ -240,6 +246,8 @@ public class FlowService {
         pc.setChoice(choice);
         pc.setTargetOrg(req.getTargetOrg());
         pc.setDeferReason(req.getDeferReason());
+        pc.setRiskNotice(req.getRiskNotice());
+        pc.setCommunicator(req.getCommunicator());
         pc.setRemark(req.getRemark());
         if (!Boolean.TRUE.equals(pc.getNotified())) {
             pc.setNotified(true);
@@ -256,7 +264,12 @@ public class FlowService {
 
         switch (choice) {
             case COUNTY_HOSPITAL, PARTNER_CLINIC -> timeline.changeStage(s, StudentStage.AWAIT_VISIT);
-            case DEFER -> timeline.changeStage(s, StudentStage.DEFERRED);
+            case DEFER -> {
+                // 家长暂缓/拒绝复诊：不能简单标成“已处理”，联动建立第一条拒诊跟进节点（append-only）
+                refusalService.recordInitialDefer(s, req.getDeferReason(), req.getRiskNotice(),
+                        req.getCommunicator(), req.getReasonType(),
+                        req.getRiskAcknowledged(), req.getPlannedCallbackDate());
+            }
         }
         return saved;
     }

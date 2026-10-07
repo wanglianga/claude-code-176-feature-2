@@ -4,7 +4,8 @@
       <el-radio-group v-model="stage" style="margin-bottom:10px" @change="load">
         <el-radio-button value="AWAIT_PARENT">待家长确认</el-radio-button>
         <el-radio-button value="LOST_FOLLOW">电话不通/失访</el-radio-button>
-        <el-radio-button value="DEFERRED">家长暂缓</el-radio-button>
+        <el-radio-button value="REFUSAL_FOLLOW">拒绝复诊跟进中</el-radio-button>
+        <el-radio-button value="DEFERRED">家长暂缓(旧)</el-radio-button>
       </el-radio-group>
       <el-table :data="rows" stripe size="small">
         <el-table-column prop="name" label="姓名" width="90" />

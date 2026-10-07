@@ -18,7 +18,11 @@ public enum EventType {
     INTERVENTION("学校干预"),
     ISSUE("异常事项登记"),
     RESOLVE("异常事项处理"),
-    STAGE_CHANGE("阶段流转");
+    STAGE_CHANGE("阶段流转"),
+    REFUSAL("家长拒绝复诊"),
+    HEALTH_CALLBACK("健康回访"),
+    REVISIT_REMIND("复诊提醒"),
+    JOINT_COMM("多方共同沟通");
 
     private final String label;
 

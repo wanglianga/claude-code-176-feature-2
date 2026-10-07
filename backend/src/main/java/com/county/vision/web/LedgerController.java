@@ -37,4 +37,17 @@ public class LedgerController {
     public ApiResponse<List<Map<String, Object>>> subsidies(@RequestParam(required = false) String status) {
         return ApiResponse.ok(queryService.subsidies(status));
     }
+
+    @Operation(summary = "家长拒诊跟进台账（dueOnly=true 仅返回到约定回访时间、仍在拒绝的节点）")
+    @GetMapping("/refusals")
+    public ApiResponse<List<Map<String, Object>>> refusals(
+            @RequestParam(required = false, defaultValue = "false") boolean dueOnly) {
+        return ApiResponse.ok(queryService.refusalLedger(dueOnly));
+    }
+
+    @Operation(summary = "多方共同沟通台账（APPLIED/ACCEPTED/DONE/REJECTED/ALL）")
+    @GetMapping("/joint-comms")
+    public ApiResponse<List<Map<String, Object>>> jointComms(@RequestParam(required = false) String status) {
+        return ApiResponse.ok(queryService.jointCommLedger(status));
+    }
 }

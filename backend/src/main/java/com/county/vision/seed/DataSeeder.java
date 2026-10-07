@@ -6,6 +6,7 @@ import com.county.vision.domain.enums.ScreenFlag;
 import com.county.vision.domain.repository.*;
 import com.county.vision.dto.RecordDtos;
 import com.county.vision.service.FlowService;
+import com.county.vision.service.RefusalService;
 import com.county.vision.service.TimelineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * 演示种子数据：
@@ -29,6 +31,12 @@ import java.time.LocalDate;
 @Profile("!test")
 public class DataSeeder implements ApplicationRunner {
 
+    /** 演示用标准风险告知内容 */
+    private static final String RISK_NOTICE =
+            "已告知家长：孩子裸眼视力/屈光已异常，若只是疲劳用眼或假性近视，需经医院散瞳等检查才能区分；"
+            + "拖延复诊可能错过最佳干预期，导致近视快速加深及高度近视、视网膜病变等风险；"
+            + "建议尽快到县医院眼科或合作眼科门诊复诊确认。";
+
     private final UserAccountRepository userRepo;
     private final RegionRepository regionRepo;
     private final SchoolRepository schoolRepo;
@@ -38,12 +46,14 @@ public class DataSeeder implements ApplicationRunner {
     private final PasswordEncoder encoder;
     private final FlowService flow;
     private final TimelineService timeline;
+    private final RefusalService refusalService;
 
     public DataSeeder(UserAccountRepository userRepo, RegionRepository regionRepo,
                       SchoolRepository schoolRepo, GradeClassRepository classRepo,
                       StudentRepository studentRepo, IssueTrackerRepository issueRepo,
                       PasswordEncoder encoder,
-                      FlowService flow, TimelineService timeline) {
+                      FlowService flow, TimelineService timeline,
+                      RefusalService refusalService) {
         this.userRepo = userRepo;
         this.regionRepo = regionRepo;
         this.schoolRepo = schoolRepo;
@@ -53,6 +63,7 @@ public class DataSeeder implements ApplicationRunner {
         this.encoder = encoder;
         this.flow = flow;
         this.timeline = timeline;
+        this.refusalService = refusalService;
     }
 
     @Override
@@ -214,14 +225,39 @@ public class DataSeeder implements ApplicationRunner {
                 true, new BigDecimal("600.00"), "1.56镜片", false, null));
         flow.followUp(followup(wu.getId(), null, null, "NO_SHOW", "爱眼眼科门诊", null, "9月半年复查未到场"));
 
-        // ---- 10. 家长选择暂缓（郑爽，三年级2班）----
+        // ---- 10. 家长认为“只是疲劳用眼”拒绝复诊 → 回访仍拒 → 筛查下降重提醒 → 共同沟通后同意（郑爽，三年级2班）----
         Student zheng = student(s1, grade(s1, "三年级", "2班"), "2024030210", "郑爽", "女",
                 LocalDate.of(2014, 7, 7), "郑妈妈", "13800010000", null, year);
         flow.submitScreen(screen(zheng.getId(), "4.8", "4.9", "-0.50", "0.00", null, null,
                 false, "近距离用眼偏多", false, null, d(2026, 9, 15)));
         flow.schoolReview(review(zheng.getId(), "CONFIRM", "临界异常，建议复诊确认"));
         flow.notifyParent(notify(zheng.getId(), "电话", false, null));
-        flow.parentChoice(choice(zheng.getId(), "DEFER", null, "孩子年龄小，家长想先观察两个月再决定是否复诊", null));
+        // 家长首次拒绝复诊：完整记录拒绝原因、风险告知、知情确认、沟通人员、约定回访时间
+        flow.parentChoice(deferChoice(zheng.getId(),
+                "孩子就是最近作业多、看手机久了眼睛疲劳，休息一下就好，不用去医院",
+                "FATIGUE", RISK_NOTICE, "一小健康老师 李校医", d(2026, 9, 30), true));
+        // 健康老师在约定时间回访：记录座位/作业用眼/户外活动/家长态度；家长仍拒绝 → 新节点（不覆盖第一次）
+        refusalService.healthCallback(callback(zheng.getId(), d(2026, 9, 30).atStartOfDay(), "一小健康老师 李校医",
+                "现坐第4排靠窗，每月轮换，反映看黑板偶尔眯眼",
+                "每晚作业约2.5小时，头埋得低，周末看手机约1.5小时",
+                "在校大课间+体育课约1小时，周末基本不外出",
+                "STILL_REFUSE", "FATIGUE",
+                "家长仍坚持是疲劳用眼，说再观察一段时间，不愿请假去医院",
+                RISK_NOTICE, true, d(2026, 10, 21)));
+        // 一个多月后再次筛查，视力继续下降：系统带出原拒诊记录与风险提示，重新生成复诊提醒（新节点）
+        flow.submitScreen(screen(zheng.getId(), "4.5", "4.6", "-1.50", "-1.25", "-0.50", "-0.25",
+                false, "近距离用眼时间进一步增加，户外活动仍不足", false, null, d(2026, 10, 20)));
+        // 连续拒绝且风险升高：学校申请班主任与社区医生共同沟通
+        Long jointId = refusalService.applyJointComm(jointApply(zheng.getId(), "BOTH",
+                "家长已连续2次拒绝复诊，10月筛查视力由4.8/4.9降至4.5/4.6，近视进展风险高，申请共同动员",
+                "三班班主任 陈老师", "城东社区卫生服务中心 王医生",
+                d(2026, 10, 23).atTime(16, 0), "三方会谈")).getId();
+        refusalService.reviewJointComm(jointId, "ACCEPTED", null);
+        // 共同沟通完成：家长同意复诊；学校干预措施落到 intervention，可追溯到该学生
+        refusalService.recordJointCommResult(jointResult(jointId, d(2026, 10, 23).atTime(16, 30),
+                "三方会谈", "班主任与社区医生共同讲解近视进展与散瞳检查必要性，家长打消“只是疲劳”顾虑，同意周末带孩子到县医院复诊",
+                "座位调至前排居中并每周轮换；保证每天2小时户外活动；班主任每周提醒控制电子产品",
+                true, "一小健康老师 李校医"));
 
         // ---- 11. 筛查正常（冯军，四年级1班）----
         Student feng = student(s1, grade(s1, "四年级", "1班"), "2024040111", "冯军", "男",
@@ -296,7 +332,37 @@ public class DataSeeder implements ApplicationRunner {
                 true, new BigDecimal("540.00"), "1.56镜片", false, null));
         flow.addIntervention(intervention(han.getId(), "PARENT_REMIND", d(2026, 10, 6), "提醒家长督促每日2小时户外活动"));
 
-        log.info("种子数据初始化完成：3 个片区、4 所学校、10 个角色账号、16 名学生场景样例（含 3 个已闭环样例）");
+        // ---- 17. 家长拒绝复诊、约定回访已到期尚未回访（许强，四年级1班）----
+        Student xu = student(s1, grade(s1, "四年级", "1班"), "2024040117", "许强", "男",
+                LocalDate.of(2013, 3, 18), "许妈妈", "13800010777", null, year);
+        flow.submitScreen(screen(xu.getId(), "4.7", "4.7", "-0.75", "-0.75", null, null,
+                false, "电子产品使用较多", false, null, d(2026, 9, 16)));
+        flow.schoolReview(review(xu.getId(), "CONFIRM", "确认异常"));
+        flow.notifyParent(notify(xu.getId(), "电话", false, null));
+        // 约定回访日设在 10/1（早于当前），用于演示“到约定回访时间”待办
+        flow.parentChoice(deferChoice(xu.getId(),
+                "孩子说就是上课累、眼睛酸，周末休息就恢复了，没必要跑医院",
+                "FATIGUE", RISK_NOTICE, "一小健康老师 李校医", d(2026, 10, 1), true));
+
+        // ---- 18. 家长连续两次拒绝、已申请班主任共同沟通待办（林娜，七年级1班，实验中学）----
+        Student lin = student(s3, g71, "2023070118", "林娜", "女",
+                LocalDate.of(2012, 2, 11), "林爸爸", "13800010888", null, year);
+        flow.submitScreen(screen(lin.getId(), "4.6", "4.5", "-1.25", "-1.50", null, null,
+                false, "作业到很晚，户外少", false, null, d(2026, 9, 18)));
+        flow.schoolReview(review(lin.getId(), "CONFIRM", "确认异常"));
+        flow.notifyParent(notify(lin.getId(), "家长会告知", false, null));
+        flow.parentChoice(deferChoice(lin.getId(),
+                "我们夫妻上班忙，没空带她去排队，先点点眼药水再说",
+                "NO_TIME", RISK_NOTICE, "实验中学健康老师 赵校医", d(2026, 10, 5), true));
+        refusalService.healthCallback(callback(lin.getId(), d(2026, 10, 5).atStartOfDay(), "实验中学健康老师 赵校医",
+                "座位在中间第3排", "每晚作业3小时以上，常用手机查资料", "几乎没有户外活动",
+                "STILL_REFUSE", "NO_TIME", "家长仍以工作忙为由拒绝，称以后有空再说",
+                RISK_NOTICE, true, d(2026, 10, 20)));
+        refusalService.applyJointComm(jointApply(lin.getId(), "HEAD_TEACHER",
+                "家长连续2次以没时间为由拒绝复诊，孩子近视进展风险较高，申请班主任共同沟通",
+                "七年级1班班主任 周老师", null, d(2026, 10, 12).atTime(17, 0), "家访"));
+
+        log.info("种子数据初始化完成：3 个片区、4 所学校、10 个角色账号、18 名学生场景样例（含家长拒诊→回访→下降重提醒→共同沟通全链条）");
     }
 
     /** 闭环某学生当前未处理的指定类型异常事项 */
@@ -443,6 +509,73 @@ public class DataSeeder implements ApplicationRunner {
         i.setContent(content);
         i.setExecuted(true);
         return i;
+    }
+
+    /* ---------- 拒诊跟进构造 ---------- */
+
+    private RecordDtos.ParentChoiceRequest deferChoice(Long sid, String reason, String reasonType,
+                                                       String riskNotice, String communicator,
+                                                       LocalDate callbackDate, boolean acknowledged) {
+        RecordDtos.ParentChoiceRequest r = new RecordDtos.ParentChoiceRequest();
+        r.setStudentId(sid);
+        r.setChoice("DEFER");
+        r.setDeferReason(reason);
+        r.setReasonType(reasonType);
+        r.setRiskNotice(riskNotice);
+        r.setCommunicator(communicator);
+        r.setPlannedCallbackDate(callbackDate);
+        r.setRiskAcknowledged(acknowledged);
+        return r;
+    }
+
+    private RecordDtos.CallbackRequest callback(Long sid, LocalDateTime callbackTime, String staff,
+                                                String seat, String homework, String outdoor,
+                                                String attitude, String reasonType, String reasonDetail,
+                                                String riskNotice, boolean acknowledged,
+                                                LocalDate nextCallback) {
+        RecordDtos.CallbackRequest c = new RecordDtos.CallbackRequest();
+        c.setStudentId(sid);
+        c.setCallbackTime(callbackTime);
+        c.setCallbackStaff(staff);
+        c.setSeatSituation(seat);
+        c.setHomeworkEyeUse(homework);
+        c.setOutdoorActivity(outdoor);
+        c.setParentAttitude(attitude);
+        c.setReasonType(reasonType);
+        c.setReasonDetail(reasonDetail);
+        c.setRiskNotice(riskNotice);
+        c.setRiskAcknowledged(acknowledged);
+        c.setNextCallbackDate(nextCallback);
+        return c;
+    }
+
+    private RecordDtos.JointCommRequest jointApply(Long sid, String commType, String reason,
+                                                   String headTeacher, String communityDoctor,
+                                                   LocalDateTime plannedTime, String channel) {
+        RecordDtos.JointCommRequest j = new RecordDtos.JointCommRequest();
+        j.setStudentId(sid);
+        j.setCommType(commType);
+        j.setApplyReason(reason);
+        j.setHeadTeacherName(headTeacher);
+        j.setCommunityDoctorName(communityDoctor);
+        j.setPlannedTime(plannedTime);
+        j.setChannel(channel);
+        return j;
+    }
+
+    private RecordDtos.JointCommResultRequest jointResult(Long jointId, LocalDateTime actualTime,
+                                                          String channel, String result,
+                                                          String measure, boolean parentAgreed,
+                                                          String recorder) {
+        RecordDtos.JointCommResultRequest j = new RecordDtos.JointCommResultRequest();
+        j.setJointCommId(jointId);
+        j.setActualTime(actualTime);
+        j.setChannel(channel);
+        j.setCommResult(result);
+        j.setSchoolMeasure(measure);
+        j.setParentAgreed(parentAgreed);
+        j.setRecorder(recorder);
+        return j;
     }
 
     /* ---------- 实体构造 ---------- */

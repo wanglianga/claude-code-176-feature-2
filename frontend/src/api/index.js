@@ -31,9 +31,18 @@ export const api = {
   intervention: (data) => http.post('/api/flow/intervention', data),
   resolveIssue: (data) => http.post('/api/flow/issue/resolve', data),
 
+  refusalRecord: (data) => http.post('/api/refusal/record', data),
+  refusalCallback: (data) => http.post('/api/refusal/callback', data),
+  jointApply: (data) => http.post('/api/refusal/joint/apply', data),
+  jointReview: (id, action, opinion) => http.post(`/api/refusal/joint/${id}/review`, null,
+    { params: { action, opinion } }),
+  jointResult: (data) => http.post('/api/refusal/joint/result', data),
+
   issues: (status) => http.get('/api/ledger/issues', { params: { status } }),
   followups: (status) => http.get('/api/ledger/followups', { params: { status } }),
   subsidies: (status) => http.get('/api/ledger/subsidies', { params: { status } }),
+  refusals: (dueOnly) => http.get('/api/ledger/refusals', { params: { dueOnly } }),
+  jointComms: (status) => http.get('/api/ledger/joint-comms', { params: { status } }),
 
   overview: (params) => http.get('/api/stats/overview', { params }),
   trendGrade: (params) => http.get('/api/stats/trend-grade', { params }),

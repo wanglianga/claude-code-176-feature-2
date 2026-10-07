@@ -82,26 +82,182 @@
     </el-dialog>
 
     <!-- 4. 家长确认选择 -->
-    <el-dialog v-model="visible.choice" title="家长确认与处置选择" width="540px">
+    <el-dialog v-model="visible.choice" title="家长确认与处置选择" width="600px">
       <el-form label-width="110px">
         <el-form-item label="处置选择">
           <el-radio-group v-model="f.choice.choice">
             <el-radio value="COUNTY_HOSPITAL">县医院复诊</el-radio>
             <el-radio value="PARTNER_CLINIC">合作眼科门诊复诊</el-radio>
-            <el-radio value="DEFER">暂缓处理</el-radio>
+            <el-radio value="DEFER">暂缓/拒绝复诊</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="f.choice.choice !== 'DEFER'" label="复诊机构">
           <el-input v-model="f.choice.targetOrg" placeholder="如 阳光县人民医院眼科 / 爱眼眼科门诊"/>
         </el-form-item>
-        <el-form-item v-if="f.choice.choice === 'DEFER'" label="暂缓原因">
-          <el-input v-model="f.choice.deferReason" type="textarea" :rows="3" placeholder="必填"/>
-        </el-form-item>
+        <template v-if="f.choice.choice === 'DEFER'">
+          <el-alert type="warning" :closable="false" style="margin-bottom:10px"
+            title="家长拒绝/暂缓复诊不能简单标为“已处理”：平台将建立拒诊跟进节点，记录拒绝原因、风险告知、沟通人员，并安排健康老师回访。" />
+          <el-form-item label="拒绝原因归类">
+            <el-select v-model="f.choice.reasonType" style="width:100%">
+              <el-option v-for="(t,k) in reasonTypes" :key="k" :label="t" :value="k" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="家长原话/原因">
+            <el-input v-model="f.choice.deferReason" type="textarea" :rows="2" placeholder="必填，如：孩子就是最近作业多看手机多，休息一下就好，不用去医院"/>
+          </el-form-item>
+          <el-form-item label="风险告知内容">
+            <el-input v-model="f.choice.riskNotice" type="textarea" :rows="4"/>
+          </el-form-item>
+          <el-form-item label="沟通人员">
+            <el-input v-model="f.choice.communicator" placeholder="与家长沟通的健康老师/班主任姓名"/>
+          </el-form-item>
+          <el-form-item label="约定回访日期">
+            <el-date-picker v-model="f.choice.plannedCallbackDate" value-format="YYYY-MM-DD" style="width:100%"/>
+          </el-form-item>
+          <el-form-item label="家长知情确认">
+            <el-checkbox v-model="f.choice.riskAcknowledged">家长已知悉上述风险，仍坚持暂不带孩子复诊</el-checkbox>
+          </el-form-item>
+        </template>
         <el-form-item label="备注"><el-input v-model="f.choice.remark" type="textarea" :rows="2"/></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="visible.choice=false">取消</el-button>
         <el-button type="primary" @click="submit('choice', api.parentChoice)">提交家长选择</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 4b. 登记家长拒绝复诊（再次拒绝/手工登记，形成新节点） -->
+    <el-dialog v-model="visible.refusal" title="登记家长拒绝复诊（跟进节点）" width="620px">
+      <el-alert type="warning" :closable="false" style="margin-bottom:10px"
+        title="每次拒绝都会形成一条新的跟进节点，不会覆盖上一次记录。请完整记录原因、风险告知与沟通人员。" />
+      <el-form label-width="120px">
+        <el-form-item label="节点来源">
+          <el-select v-model="f.refusal.triggerSource" style="width:100%">
+            <el-option label="首次告知后拒绝" value="INITIAL_NOTIFY" />
+            <el-option label="后续筛查下降重新提醒" value="RESCREEN_DROP" />
+            <el-option label="回访后仍拒绝" value="CALLBACK_AFTER" />
+            <el-option label="学校手工登记" value="MANUAL" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="拒绝原因归类">
+          <el-select v-model="f.refusal.reasonType" style="width:100%">
+            <el-option v-for="(t,k) in reasonTypes" :key="k" :label="t" :value="k" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="家长原话/原因">
+          <el-input v-model="f.refusal.reasonDetail" type="textarea" :rows="2" placeholder="必填"/>
+        </el-form-item>
+        <el-form-item label="风险告知内容">
+          <el-input v-model="f.refusal.riskNotice" type="textarea" :rows="4"/>
+        </el-form-item>
+        <el-form-item label="沟通方式">
+          <el-input v-model="f.refusal.contactChannel" placeholder="电话/面访/家长会/APP"/>
+        </el-form-item>
+        <el-form-item label="沟通人员">
+          <el-input v-model="f.refusal.communicator" placeholder="必填"/>
+        </el-form-item>
+        <el-form-item label="约定回访日期">
+          <el-date-picker v-model="f.refusal.plannedCallbackDate" value-format="YYYY-MM-DD" style="width:100%"/>
+        </el-form-item>
+        <el-form-item label="家长知情确认">
+          <el-checkbox v-model="f.refusal.riskAcknowledged">家长已知悉上述风险，仍坚持暂不带孩子复诊</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="visible.refusal=false">取消</el-button>
+        <el-button type="danger" @click="submit('refusal', api.refusalRecord)">登记拒绝节点</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 4c. 健康老师约定时间回访 -->
+    <el-dialog v-model="visible.callback" title="健康回访（约定时间跟进）" width="640px">
+      <el-alert type="info" :closable="false" style="margin-bottom:10px"
+        title="回访内容与历次筛查结果保存在同一份学生档案中比对。家长仍拒绝时，将形成新的拒诊节点而非覆盖原记录。" />
+      <el-form label-width="120px">
+        <el-form-item label="回访人">
+          <el-input v-model="f.callback.callbackStaff" placeholder="健康老师姓名"/>
+        </el-form-item>
+        <el-form-item label="孩子座位情况">
+          <el-input v-model="f.callback.seatSituation" type="textarea" :rows="2"
+            placeholder="如：现坐第4排靠窗边，居中，每月轮换；看黑板偶尔眯眼"/>
+        </el-form-item>
+        <el-form-item label="作业/用眼情况">
+          <el-input v-model="f.callback.homeworkEyeUse" type="textarea" :rows="2"
+            placeholder="如：每晚作业约2.5小时，姿势偏近，周末看手机约1小时"/>
+        </el-form-item>
+        <el-form-item label="户外活动">
+          <el-input v-model="f.callback.outdoorActivity" type="textarea" :rows="2"
+            placeholder="如：在校大课间+体育课约1小时，周末基本不外出"/>
+        </el-form-item>
+        <el-form-item label="家长当前态度">
+          <el-select v-model="f.callback.parentAttitude" style="width:100%">
+            <el-option v-for="(t,k) in attitudes" :key="k" :label="t" :value="k" />
+          </el-select>
+        </el-form-item>
+        <template v-if="f.callback.parentAttitude==='STILL_REFUSE'">
+          <el-alert type="error" :closable="false" style="margin-bottom:10px"
+            title="家长回访时仍拒绝复诊，请再次记录风险告知、拒绝原因并取得知情确认。" />
+          <el-form-item label="拒绝原因归类">
+            <el-select v-model="f.callback.reasonType" style="width:100%">
+              <el-option v-for="(t,k) in reasonTypes" :key="k" :label="t" :value="k" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="本次拒绝原话">
+            <el-input v-model="f.callback.reasonDetail" type="textarea" :rows="2"/>
+          </el-form-item>
+          <el-form-item label="再次风险告知">
+            <el-input v-model="f.callback.riskNotice" type="textarea" :rows="3"/>
+          </el-form-item>
+          <el-form-item label="家长知情确认">
+            <el-checkbox v-model="f.callback.riskAcknowledged">家长已知悉风险仍坚持拒绝</el-checkbox>
+          </el-form-item>
+        </template>
+        <el-form-item v-if="f.callback.parentAttitude!=='AGREED'" label="下次回访日期">
+          <el-date-picker v-model="f.callback.nextCallbackDate" value-format="YYYY-MM-DD" style="width:100%"/>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="f.callback.remark" type="textarea" :rows="2"/>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="visible.callback=false">取消</el-button>
+        <el-button type="primary" @click="submit('callback', api.refusalCallback)">提交回访</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 4d. 申请班主任/社区医生共同沟通 -->
+    <el-dialog v-model="visible.joint" title="申请多方共同沟通" width="560px">
+      <el-alert type="warning" :closable="false" style="margin-bottom:10px"
+        title="适用于家长连续拒绝复诊且风险持续升高。沟通结果与学校干预措施将记录并可追溯到该学生。" />
+      <el-form label-width="120px">
+        <el-form-item label="共同沟通对象">
+          <el-radio-group v-model="f.joint.commType">
+            <el-radio value="HEAD_TEACHER">班主任</el-radio>
+            <el-radio value="COMMUNITY_DOCTOR">社区医生</el-radio>
+            <el-radio value="BOTH">班主任+社区医生</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="班主任姓名">
+          <el-input v-model="f.joint.headTeacherName"/>
+        </el-form-item>
+        <el-form-item label="社区医生/机构">
+          <el-input v-model="f.joint.communityDoctorName" placeholder="如：城东社区卫生服务中心 王医生"/>
+        </el-form-item>
+        <el-form-item label="计划沟通时间">
+          <el-date-picker v-model="f.joint.plannedTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss"
+            placeholder="选择日期时间" style="width:100%"/>
+        </el-form-item>
+        <el-form-item label="沟通方式">
+          <el-input v-model="f.joint.channel" placeholder="家访/电话/三方会谈"/>
+        </el-form-item>
+        <el-form-item label="申请理由">
+          <el-input v-model="f.joint.applyReason" type="textarea" :rows="3"
+            placeholder="如：家长已连续2次拒绝，本次筛查视力继续下降，需班主任与社区医生共同动员"/>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="visible.joint=false">取消</el-button>
+        <el-button type="warning" @click="submit('joint', api.jointApply)">提交申请</el-button>
       </template>
     </el-dialog>
 
@@ -244,6 +400,27 @@ const emit = defineEmits(['done'])
 const visible = reactive({})
 const today = new Date().toISOString().slice(0, 10)
 
+const standardRisk = '已告知家长：孩子裸眼视力/屈光已异常，若只是疲劳用眼或假性近视，需经医院散瞳等检查才能区分；拖延复诊可能错过最佳干预期，导致近视快速加深及高度近视、视网膜病变等风险；建议尽快到县医院眼科或合作眼科门诊复诊确认。'
+
+const reasonTypes = {
+  FATIGUE: '认为只是疲劳用眼/假性近视',
+  TEMPORARY: '认为过段时间会自行恢复',
+  NO_TIME: '家长工作忙、没时间',
+  COST: '担心费用',
+  DISTRUST: '不信任筛查结果或医院',
+  ALREADY_GLASSES: '已自行配镜，认为无需复诊',
+  OTHER: '其他原因'
+}
+const attitudes = {
+  STILL_REFUSE: '仍拒绝复诊',
+  HESITATE: '犹豫，继续动员',
+  WILL_OBSERVE: '愿意先调整用眼习惯再观察',
+  AGREED: '已同意复诊',
+  UNREACHABLE: '仍联系不上'
+}
+// 两周后的约定回访日期
+const inTwoWeeks = () => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+
 const blank = () => ({
   screen: { screenDate: today, orgName: '阳光县视光中心', operatorName: '', deviceCalibNo: '',
     nakedVisionLeft: '', nakedVisionRight: '', sphereLeft: '', sphereRight: '',
@@ -251,7 +428,17 @@ const blank = () => ({
     retestNeeded: false, absent: false },
   review: { result: 'CONFIRM', opinion: '' },
   notify: { channel: '电话', unreachable: false, remark: '' },
-  choice: { choice: 'COUNTY_HOSPITAL', targetOrg: '阳光县人民医院眼科', deferReason: '', remark: '' },
+  choice: { choice: 'COUNTY_HOSPITAL', targetOrg: '阳光县人民医院眼科', deferReason: '',
+    reasonType: 'FATIGUE', riskNotice: standardRisk, communicator: '', plannedCallbackDate: inTwoWeeks(),
+    riskAcknowledged: false, remark: '' },
+  refusal: { triggerSource: 'MANUAL', reasonType: 'FATIGUE', reasonDetail: '',
+    riskNotice: standardRisk, contactChannel: '电话', communicator: '',
+    plannedCallbackDate: inTwoWeeks(), riskAcknowledged: false, remark: '' },
+  callback: { callbackStaff: '', seatSituation: '', homeworkEyeUse: '', outdoorActivity: '',
+    parentAttitude: 'HESITATE', reasonType: 'FATIGUE', reasonDetail: '', riskNotice: standardRisk,
+    riskAcknowledged: false, nextCallbackDate: inTwoWeeks(), remark: '' },
+  joint: { commType: 'HEAD_TEACHER', headTeacherName: '', communityDoctorName: '', plannedTime: '',
+    channel: '家访', applyReason: '' },
   visit: { visitDate: today, orgName: '阳光县人民医院眼科', doctor: '', trueMyopia: true,
     needMydriasis: false, rxSphereLeft: '', rxSphereRight: '', rxCylinderLeft: '', rxCylinderRight: '',
     rxAxisLeft: '', rxAxisRight: '', pd: '', diagnosis: '', reviewCycleMonths: 6,

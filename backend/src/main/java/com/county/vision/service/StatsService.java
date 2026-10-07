@@ -31,6 +31,8 @@ public class StatsService {
     private final IssueTrackerRepository issueRepo;
     private final SchoolRepository schoolRepo;
     private final CacheService cache;
+    private final RefusalFollowUpRepository refusalRepo;
+    private final JointCommunicationRepository jointRepo;
 
     @PersistenceContext
     private EntityManager em;
@@ -38,7 +40,9 @@ public class StatsService {
     public StatsService(StudentRepository studentRepo, ScreenRecordRepository screenRepo,
                         VisitRecordRepository visitRepo, GlassesRecordRepository glassesRepo,
                         SubsidyApplicationRepository subsidyRepo, IssueTrackerRepository issueRepo,
-                        SchoolRepository schoolRepo, CacheService cache) {
+                        SchoolRepository schoolRepo, CacheService cache,
+                        RefusalFollowUpRepository refusalRepo,
+                        JointCommunicationRepository jointRepo) {
         this.studentRepo = studentRepo;
         this.screenRepo = screenRepo;
         this.visitRepo = visitRepo;
@@ -47,6 +51,8 @@ public class StatsService {
         this.issueRepo = issueRepo;
         this.schoolRepo = schoolRepo;
         this.cache = cache;
+        this.refusalRepo = refusalRepo;
+        this.jointRepo = jointRepo;
     }
 
     @Transactional(readOnly = true)
@@ -70,6 +76,8 @@ public class StatsService {
         long deferred = students.stream().filter(s -> s.getStage() == StudentStage.DEFERRED).count();
         long lostFollow = students.stream().filter(s -> s.getStage() == StudentStage.LOST_FOLLOW).count();
         long reviewDue = students.stream().filter(s -> s.getStage() == StudentStage.REVIEW_DUE).count();
+        long refusalFollowing = students.stream()
+                .filter(s -> s.getStage() == StudentStage.REFUSAL_FOLLOW).count();
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("totalStudents", total);
@@ -95,6 +103,35 @@ public class StatsService {
                 com.county.vision.domain.enums.SubsidyStatus.PAID));
         m.put("subsidyDispute", subsidyRepo.countByStatus(
                 com.county.vision.domain.enums.SubsidyStatus.DISPUTE));
+
+        // 家长拒绝复诊跟进：节点总数、再次拒绝、当前仍在跟进、已动员同意复诊、共同沟通
+        List<com.county.vision.domain.entity.RefusalFollowUp> refusalNodes = refusalRepo.findAll();
+        long refusalStudents = refusalNodes.stream().map(n -> n.getStudent().getId()).distinct().count();
+        long refusalReRefused = refusalNodes.stream()
+                .filter(n -> n.getOutcome() == com.county.vision.domain.enums.RefusalOutcome.REFUSED
+                        && n.getSeqNo() != null && n.getSeqNo() > 1).count();
+        // 每名学生按最后一个节点判断最终是否已同意复诊
+        java.util.Map<Long, com.county.vision.domain.enums.RefusalOutcome> lastOutcome = new java.util.LinkedHashMap<>();
+        refusalNodes.stream()
+                .sorted(java.util.Comparator.comparing(
+                        com.county.vision.domain.entity.RefusalFollowUp::getSeqNo,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .forEach(n -> lastOutcome.put(n.getStudent().getId(), n.getOutcome()));
+        long refusalConverted = lastOutcome.values().stream()
+                .filter(o -> o == com.county.vision.domain.enums.RefusalOutcome.AGREED_VISIT).count();
+        long jointOpen = jointRepo.findAll().stream()
+                .filter(j -> j.getStatus() != com.county.vision.domain.enums.JointCommStatus.DONE
+                        && j.getStatus() != com.county.vision.domain.enums.JointCommStatus.REJECTED).count();
+        long jointDone = jointRepo.findAll().stream()
+                .filter(j -> j.getStatus() == com.county.vision.domain.enums.JointCommStatus.DONE).count();
+        m.put("refusalFollowCount", refusalFollowing);
+        m.put("refusalStudentTotal", refusalStudents);
+        m.put("refusalNodeTotal", refusalNodes.size());
+        m.put("refusalReRefusedCount", refusalReRefused);
+        m.put("refusalConvertedCount", refusalConverted);
+        m.put("jointCommOpen", jointOpen);
+        m.put("jointCommDone", jointDone);
+        m.put("refusalConvertRate", rate(refusalConverted, refusalStudents));
 
         cache.put(cacheKey, m, Duration.ofSeconds(30));
         return m;
